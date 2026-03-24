@@ -51,6 +51,7 @@ jobs:
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         with:
           use_foundry: "true"
-          claude_args: "--model claude-sonnet-4-6"
-          settings: '{"permissions":{"defaultMode":"bypassPermissions"}}'
+          claude_args: |
+            --model claude-sonnet-4-6
+            --dangerously-skip-permissions
           prompt: ${{ github.event.inputs.prompt }}

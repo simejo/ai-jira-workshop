@@ -39,9 +39,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           use_foundry: "true"
-          claude_args: "--model claude-sonnet-4-6"
           show_full_output: "true"
-          settings: '{"permissions":{"defaultMode":"bypassPermissions"}}'
+          claude_args: |
+            --model claude-sonnet-4-6
+            --dangerously-skip-permissions
           prompt: |
             You are a log analysis assistant with access to Azure CLI and GitHub CLI.
 
