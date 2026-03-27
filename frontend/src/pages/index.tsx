@@ -3,6 +3,7 @@ import { getPosts, Post } from "@/clients/api";
 import { Layout } from "@snokam/core";
 import { LayoutTheme, Padding, TransitionType } from "@snokam/core/layout";
 import { GetServerSideProps } from "next";
+import Link from "next/link";
 
 interface HomePageProps {
   posts: Post[];
@@ -34,7 +35,9 @@ const HomePage = ({ posts }: HomePageProps) => (
             <ul>
               {posts.map((post) => (
                 <li key={post.id}>
-                  <h3>{post.title}</h3>
+                  <Link href={`/posts/${post.slug}`}>
+                    <h3>{post.title}</h3>
+                  </Link>
                   <p>{post.excerpt}</p>
                 </li>
               ))}
