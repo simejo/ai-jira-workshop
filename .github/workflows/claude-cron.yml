@@ -1,0 +1,84 @@
+name: Daily Exception Fix PR (Azure Log Analytics)
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # Auth to Azure using GitHub OIDC or a JSON service principal secret.
+      # Recommended (OIDC):
+      # - Set repo/org secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+      # - Create a federated credential for this GitHub repo in Entra ID
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Query Log Analytics for top exceptions (last 24h)
+        id: exceptions
+        env:
+          WORKSPACE_ID: ${{ secrets.AZURE_LOG_ANALYTICS_WORKSPACE_ID }}
+        run: |
+          set -euo pipefail
+
+          # KQL: summarize top exception messages over last 24 hours.
+          QUERY='exceptions
+          | where timestamp > ago(24h)
+          | summarize count=count() by type, outerMessage
+          | top 20 by count desc'
+
+          az monitor log-analytics query \
+            --workspace "$WORKSPACE_ID" \
+            --analytics-query "$QUERY" \
+            --output json > exceptions.json
+
+          # Render a compact, readable summary for Claude.
+          jq -r '
+            "Top exceptions (last 24h):\n" +
+            ( .tables[0].rows
+              | to_entries
+              | map(
+                  "- count=" + (.[].value[2] | tostring) +
+                  " | type=" + (.[].value[0] | tostring) +
+                  " | message=" + (.[].value[1] | tostring)
+                )
+              | join("\n")
+            )
+          ' exceptions.json > exceptions.md
+
+          echo "EXCEPTIONS_MD<<'EOF'" >> "$GITHUB_ENV"
+          cat exceptions.md >> "$GITHUB_ENV"
+          echo "EOF" >> "$GITHUB_ENV"
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_FOUNDRY_API_KEY }}
+          base_branch: "main"
+          prompt: |
+            You are on a scheduled automation run.
+
+            Goal: create a PR that fixes the root causes of the most frequent Azure Log Analytics exceptions from the last 24 hours.
+
+            Here is the exception summary from Log Analytics:
+
+            ${{ env.EXCEPTIONS_MD }}
+
+            Instructions:
+            - Identify which exceptions likely correspond to this repo's code. Fix them in the codebase.
+            - Prefer small, safe fixes (input validation, null checks, error handling, schema alignment).
+            - If the exceptions are clearly not caused by this repo, create a PR that improves observability instead (better logging, error boundaries, clearer messages) and explain why.
+            - Ensure the PR description includes: which exceptions were addressed, what changed, and how to verify.
+          claude_args: |
+            --model claude-sonnet-4-6
+            --max-turns 10
+            --allowedTools "Bash(npm ci),Bash(npm test),Bash(npm run build),Bash(npm run lint)"
