@@ -36,6 +36,15 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Default workspace id (law-snkm-p in rg-snkm-shared-p). Override by setting secret AZURE_LOG_ANALYTICS_WORKSPACE_ID.
+          WORKSPACE_ID="${WORKSPACE_ID:-a53c2ee0-9900-4756-b9c1-ab1b96a28d87}"
+
+          # Ensure required Azure CLI extension is installed non-interactively.
+          # The log-analytics extension may only have preview builds.
+          az config set extension.use_dynamic_install=yes_without_prompt
+          az config set extension.dynamic_install_allow_preview=true
+          az extension add --name log-analytics --upgrade
+
           # KQL: summarize top exception messages over last 24 hours.
           QUERY='exceptions
           | where timestamp > ago(24h)
