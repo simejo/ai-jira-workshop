@@ -1,7 +1,11 @@
 name: Daily Exception Fix PR (Azure Log Analytics)
 on:
+  push:
+    branches:
+      - "**"
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "0 15 * * *"
+  workflow_dispatch: {}
 jobs:
   report:
     runs-on: ubuntu-latest
@@ -67,7 +71,7 @@ jobs:
           prompt: |
             You are on a scheduled automation run.
 
-            Goal: create a PR that fixes the root causes of the most frequent Azure Log Analytics exceptions from the last 24 hours.
+            Goal: create a PR that fixes the root causes of the 3 most frequent Azure Log Analytics exceptions from the last 24 hours.
 
             Here is the exception summary from Log Analytics:
 
