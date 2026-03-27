@@ -14,78 +14,36 @@ jobs:
       pull-requests: write
       issues: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      # Auth to Azure using GitHub OIDC or a JSON service principal secret.
-      # Recommended (OIDC):
-      # - Set repo/org secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
-      # - Create a federated credential for this GitHub repo in Entra ID
-      - name: Azure login
-        run: |
-          az login --service-principal \
-            --username "${{ secrets.AZURE_CLIENT_ID }}" \
-            --password "${{ secrets.AZURE_CLIENT_SECRET }}" \
-            --tenant "${{ secrets.AZURE_TENANT_ID }}"
-          az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-
-      - name: Query Log Analytics for top exceptions (last 24h)
-        id: exceptions
-        env:
-          WORKSPACE_ID: ${{ secrets.AZURE_LOG_ANALYTICS_WORKSPACE_ID }}
-        run: |
-          set -euo pipefail
-
-          # Default workspace id (law-snkm-p in rg-snkm-shared-p). Override by setting secret AZURE_LOG_ANALYTICS_WORKSPACE_ID.
-          WORKSPACE_ID="${WORKSPACE_ID:-a53c2ee0-9900-4756-b9c1-ab1b96a28d87}"
-
-          # Ensure required Azure CLI extension is installed non-interactively.
-          # The log-analytics extension may only have preview builds.
-          az config set extension.use_dynamic_install=yes_without_prompt
-          az config set extension.dynamic_install_allow_preview=true
-          az extension add --name log-analytics --upgrade
-
-          # KQL: summarize top exception messages over last 24 hours.
-          QUERY='exceptions
-          | where timestamp > ago(24h)
-          | summarize count=count() by type, outerMessage
-          | top 20 by count desc'
-
-          az monitor log-analytics query \
-            --workspace "$WORKSPACE_ID" \
-            --analytics-query "$QUERY" \
-            --output json > exceptions.json
-
-          # Render a compact, readable summary for Claude.
-          jq -r '
-            "Top exceptions (last 24h):\n" +
-            ( .tables[0].rows
-              | to_entries
-              | map(
-                  "- count=" + (.[].value[2] | tostring) +
-                  " | type=" + (.[].value[0] | tostring) +
-                  " | message=" + (.[].value[1] | tostring)
-                )
-              | join("\n")
-            )
-          ' exceptions.json > exceptions.md
-
-          echo "EXCEPTIONS_MD<<'EOF'" >> "$GITHUB_ENV"
-          cat exceptions.md >> "$GITHUB_ENV"
-          echo "EOF" >> "$GITHUB_ENV"
-
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_FOUNDRY_API_KEY }}
           base_branch: "main"
+          settings: |
+            {
+              "env": {
+                "AZURE_CREDENTIALS": "${{ secrets.AZURE_CREDENTIALS }}",
+                "AZURE_LOG_ANALYTICS_WORKSPACE_ID": "${{ secrets.AZURE_LOG_ANALYTICS_WORKSPACE_ID }}"
+              }
+            }
           prompt: |
-            You are on a scheduled automation run.
+            Goal: create a PR that fixes the root causes of the most frequent Azure Log Analytics exceptions from the last 24 hours.
 
-            Goal: create a PR that fixes the root causes of the 3 most frequent Azure Log Analytics exceptions from the last 24 hours.
+            Log Analytics details:
+            - Workspace ID (Customer ID): a53c2ee0-9900-4756-b9c1-ab1b96a28d87
+            - Workspace name: law-snkm-p
+            - Resource group: rg-snkm-shared-p
 
-            Here is the exception summary from Log Analytics:
+            Required query (KQL):
+            exceptions
+            | where timestamp > ago(24h)
+            | summarize count=count() by type, outerMessage
+            | top 20 by count desc
 
-            ${{ env.EXCEPTIONS_MD }}
+            Steps you must perform:
+            - Authenticate to Azure using client secret credentials from $AZURE_CREDENTIALS (JSON with clientId/clientSecret/tenantId/subscriptionId).
+            - Ensure the Azure CLI `log-analytics` extension is installed (preview allowed) and query the workspace above (or $AZURE_LOG_ANALYTICS_WORKSPACE_ID if set).
+            - Summarize the top 3 exceptions and then fix the root causes in this repo.
+            - Create a branch and open a PR with the fixes and a clear description.
 
             Instructions:
             - Identify which exceptions likely correspond to this repo's code. Fix them in the codebase.
@@ -95,4 +53,4 @@ jobs:
           claude_args: |
             --model claude-sonnet-4-6
             --max-turns 10
-            --allowedTools "Bash(npm ci),Bash(npm test),Bash(npm run build),Bash(npm run lint)"
+            --allowedTools "Bash(az config set*),Bash(az extension add*),Bash(az login*),Bash(az account set*),Bash(az monitor log-analytics query*),Bash(jq*),Bash(npm ci),Bash(npm test),Bash(npm run build),Bash(npm run lint)"
